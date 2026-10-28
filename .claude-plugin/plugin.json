@@ -1,0 +1,13 @@
+{
+  "name": "fit-gps-spoof-fix",
+  "displayName": "FIT GPS Spoof Fix",
+  "description": "Repair Garmin/Strava cycling activities corrupted by GPS spoofing or jamming: removes fake speed and distance, wipes spoofed coordinates, keeps heart rate, cadence, altitude, time and real sensor distance.",
+  "author": {
+    "name": "Mykhailo Semitkin",
+    "url": "https://github.com/msemitkin"
+  },
+  "homepage": "https://github.com/msemitkin/fit-gps-spoof-fix",
+  "repository": "https://github.com/msemitkin/fit-gps-spoof-fix",
+  "license": "MIT",
+  "keywords": ["garmin", "strava", "fit", "gps", "spoofing", "jamming", "cycling"]
+}

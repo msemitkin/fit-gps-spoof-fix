@@ -1,0 +1,15 @@
+{
+  "name": "msemitkin",
+  "description": "Mykhailo Semitkin's Claude Code plugins.",
+  "owner": {
+    "name": "Mykhailo Semitkin",
+    "url": "https://github.com/msemitkin"
+  },
+  "plugins": [
+    {
+      "name": "fit-gps-spoof-fix",
+      "source": "./",
+      "description": "Repair Garmin/Strava cycling activities corrupted by GPS spoofing or jamming."
+    }
+  ]
+}
