@@ -2,18 +2,20 @@
 """
 analyze_fit.py - diagnose GPS spoofing in a FIT activity BEFORE fixing it.  No external dependencies.
 
-Usage: python3 analyze_fit.py ride.fit [--max-kmh 60] [--max-km 100] [--center LAT,LON]
+Usage: python3 analyze_fit.py activity.fit [--max-kmh N] [--max-km 100] [--center LAT,LON]
 
-Prints: devices (is there a wheel speed sensor?), session totals, spoofed positions, speed histogram
+Prints: devices (is there a speed sensor: bike wheel or foot pod?), session totals, spoofed positions, speed histogram
 (is there a clean gap under the threshold?), fake-speed episodes with a standstill verdict, borderline
 records just under the threshold, gaps in valid GPS, sensor-vs-GPS distance ratio, raw GPS-chip speed.
 """
 import argparse, datetime as dt, statistics, struct
-from fix_fit_spoof import (parse, get, crc16, load_records, center_of, hav_m, SC, FIT_EPOCH,
+from fix_fit_spoof import (parse, get, crc16, load_records, center_of, hav_m, resolve_max_kmh, SC, FIT_EPOCH,
                            FILE_ID, SESSION, LAP, EVENT, DEVICE_INFO, ACTIVITY, GPS_META)
 
-ANT_TYPES = {11: 'bike power', 120: 'heart rate', 121: 'bike speed+cadence', 122: 'bike cadence', 123: 'bike SPEED sensor'}
-BLE_TYPES = {1: 'heart rate', 2: 'bike power', 3: 'bike speed+cadence', 4: 'bike SPEED sensor', 5: 'bike cadence'}
+ANT_TYPES = {11: 'bike power', 120: 'heart rate', 121: 'bike speed+cadence', 122: 'bike cadence', 123: 'bike SPEED sensor',
+             124: 'foot pod (stride SPEED/distance)'}
+BLE_TYPES = {1: 'heart rate', 2: 'bike power', 3: 'bike speed+cadence', 4: 'bike SPEED sensor', 5: 'bike cadence',
+             6: 'foot pod (running SPEED/cadence)'}
 SOURCE = {0: 'ANT', 1: 'ANT+', 2: 'BT', 3: 'BLE', 4: 'wifi', 5: 'local'}
 
 
@@ -23,12 +25,13 @@ def hms(s):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('src'); ap.add_argument('--max-kmh', type=float, default=60.0)
+    ap.add_argument('src'); ap.add_argument('--max-kmh', type=float, help='default by sport: cycling 60, running 30, walking/hiking 15')
     ap.add_argument('--max-km', type=float, default=100.0); ap.add_argument('--center')
-    a = ap.parse_args(); thr = a.max_kmh / 3.6
+    a = ap.parse_args()
 
     raw = open(a.src, 'rb').read()
     header, msgs = parse(a.src)
+    a.max_kmh = resolve_max_kmh(a.max_kmh, msgs); thr = a.max_kmh / 3.6
     print(f'file: {len(raw)} bytes, {len(msgs)} messages, CRC ok: {crc16(raw[:-2]) == struct.unpack("<H", raw[-2:])[0]}')
 
     # ---- identity, devices, session ---------------------------------------------------
@@ -56,7 +59,7 @@ def main():
                 has_speed_sensor = True
             if name:
                 print(f'  sensor: {name} via {SOURCE.get(src, src)} (manufacturer {key[2]}, product {key[3]})')
-    print('wheel speed sensor paired:', 'YES' if has_speed_sensor else 'NO  <-- speed/distance are GPS-based; see SKILL.md "No speed sensor"')
+    print('speed sensor (wheel or foot pod) paired:', 'YES' if has_speed_sensor else 'NO  <-- speed/distance are GPS-based; see SKILL.md "No speed sensor"')
     for m in msgs:
         if not m.is_def and m.gnum == SESSION:
             print(f'session: start {when(get(m, 2))}, elapsed {hms((get(m, 7) or 0) / 1000)}, timer {hms((get(m, 8) or 0) / 1000)}, '
@@ -80,7 +83,7 @@ def main():
         r['v'] = max(r['spd'] or 0.0, r['dd'] / r['dt'] if r['dt'] else 0.0)
     n = len(recs)
     print(f'\nrecords: {n}, without position: {sum(r["lat"] is None for r in recs)}, without speed: {sum(r["spd"] is None for r in recs)}')
-    print(f'centre of ride: {clat:.4f}, {clon:.4f}')
+    print(f'centre of activity: {clat:.4f}, {clon:.4f}')
     far = [r for r in recs if r['far']]
     print(f'SPOOFED positions (> {a.max_km:.0f} km from centre): {len(far)}')
     clusters = {}
@@ -116,7 +119,7 @@ def main():
         still = max(cads) < 40 and (not alts or max(alts) - min(alts) < 5)
         print(f'   {hms(e[0]["s"])} - {hms(e[-1]["s"])} elapsed: {len(e)} records, +{sum(r["dd"] for r in e):.0f} m, max record speed {max(r["spd"] or 0 for r in e) * 3.6:.0f} km/h, '
               f'cadence max {max(cads)}, HR {min(hrs, default=0)}-{max(hrs, default=0)}, altitude span {max(alts) - min(alts) if alts else 0:.1f} m'
-              f'  -> {"rider was STANDING or barely moving (sensor asleep, GPS fallback)" if still else "rider may have been MOVING - look closer"}')
+              f'  -> {"athlete was STANDING or barely moving (sensor asleep, GPS fallback)" if still else "athlete may have been MOVING - look closer"}')
 
     # ---- borderline records -----------------------------------------------------------
     border = [k for k, r in enumerate(recs) if 0.8 * thr < r['v'] <= thr]
@@ -140,7 +143,7 @@ def main():
     # ---- GPS gaps & sensor-vs-GPS ratio ---------------------------------------------------
     ok = [r for r in recs if r['lat'] is not None and not r['far']]
     g_sum = d_sum = 0.0
-    print('\ngaps in REAL GPS where the bike actually moved (map will show a straight line there):')
+    print('\ngaps in REAL GPS where the athlete actually moved (map will show a straight line there):')
     for p, q in zip(ok, ok[1:]):
         gd = hav_m(p['lat'], p['lon'], q['lat'], q['lon']); dd = (q['dist'] or 0) - (p['dist'] or 0); gt = q['t'] - p['t']
         if gt <= 5:
@@ -151,14 +154,14 @@ def main():
     if d_sum:
         ratio = g_sum / d_sum
         print(f'GPS / recorded distance over clean stretches: {ratio:.4f}  '
-              f'({"differs from 1 -> recorded distance comes from the wheel sensor" if abs(ratio - 1) > 0.004 else "~1.000 -> recorded distance is probably GPS-based"})')
+              f'({"differs from 1 -> recorded distance comes from the speed sensor" if abs(ratio - 1) > 0.004 else "~1.000 -> recorded distance is probably GPS-based"})')
 
     # ---- raw GPS-chip speed (Garmin message 160) --------------------------------------------
     g = [get(m, 4) for m in msgs if not m.is_def and m.gnum == GPS_META]
     g = [x / 1000 for x in g if x is not None]
     if g:
         print(f'raw GPS-chip speed samples (msg 160): {len(g)}, above threshold: {sum(x > thr for x in g)}, max {max(g) * 3.6:.0f} km/h'
-              f'   (many spoofed samples + sane record speed = the watch was using the wheel sensor)')
+              f'   (many spoofed samples + sane record speed = the watch was using the speed sensor)')
     ev = [(get(m, 253) - t0, get(m, 1)) for m in msgs if not m.is_def and m.gnum == EVENT and get(m, 0) == 0 and get(m, 253)]
     print(f'timer events: {sum(1 for e in ev if e[1] == 0)} starts / {sum(1 for e in ev if e[1] == 4)} stops (auto-pause {"on" if len(ev) > 6 else "probably off"})')
 

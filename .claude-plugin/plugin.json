@@ -1,7 +1,7 @@
 {
   "name": "fit-gps-spoof-fix",
   "displayName": "FIT GPS Spoof Fix",
-  "description": "Fix Garmin/Strava cycling activities broken by GPS spoofing or jamming (track jumps to Lima, 200+ km/h spikes, fake kilometres). Виправляє активності Strava/Garmin після спуфінгу та глушіння GPS (РЕБ).",
+  "description": "Fix Garmin/Strava activities (rides, runs, walks) broken by GPS spoofing or jamming (track jumps to Lima, 200+ km/h spikes, fake kilometres). Виправляє активності Strava/Garmin після спуфінгу та глушіння GPS (РЕБ).",
   "author": {
     "name": "Mykhailo Semitkin",
     "url": "https://github.com/msemitkin"
@@ -19,11 +19,18 @@
     "gps-jamming",
     "electronic-warfare",
     "cycling",
+    "foot-pod",
+    "hiking",
+    "walking",
+    "running",
     "mtb",
     "speed-spike",
     "wrong-distance",
     "lima",
     "ukraine",
+    "біг",
+    "пробіжка",
+    "ходьба",
     "спуфінг",
     "глушіння",
     "РЕБ",

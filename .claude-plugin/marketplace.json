@@ -9,7 +9,7 @@
     {
       "name": "fit-gps-spoof-fix",
       "source": "./",
-      "description": "Fix Strava/Garmin rides broken by GPS spoofing or jamming · виправлення активностей після спуфінгу GPS (РЕБ)."
+      "description": "Fix Strava/Garmin rides and runs broken by GPS spoofing or jamming · виправлення активностей після спуфінгу GPS (РЕБ)."
     }
   ]
 }

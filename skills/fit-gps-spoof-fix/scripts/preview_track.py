@@ -27,7 +27,7 @@ for p, q in zip(idx, idx[1:]):
             ax.plot([F[p]['lon'], F[q]['lon']], [F[p]['lat'], F[q]['lat']], color=c, lw=2.2, ls='--')
             ax.scatter([F[p]['lon'], F[q]['lon']], [F[p]['lat'], F[q]['lat']], color=c, s=28, zorder=5)
             t0 = F[0]['t']
-            print(f'bridge ({"spoofed positions removed" if spoof else "no GPS fix"}): elapsed {F[p]["t"] - t0}..{F[q]["t"] - t0} s, straight {gap:.0f} m, actually ridden {ridden:.0f} m')
+            print(f'bridge ({"spoofed positions removed" if spoof else "no GPS fix"}): elapsed {F[p]["t"] - t0}..{F[q]["t"] - t0} s, straight {gap:.0f} m, actually covered {ridden:.0f} m')
     piece.append(q)
 ax.plot([F[k]['lon'] for k in piece], [F[k]['lat'] for k in piece], color='#fc4c02', lw=1.6, label='GPS track')
 ax.plot([], [], color='#1f77b4', lw=2.2, ls='--', label='bridge over removed spoofed points')

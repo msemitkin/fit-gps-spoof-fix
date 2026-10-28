@@ -6,13 +6,13 @@ Patches the file in place, byte for byte (every other message is left untouched)
   * records whose speed (or distance step / time step) exceeds --max-kmh are treated as
     spoofed-GPS fallback: speed -> 0, their distance increment is removed and the
     cumulative distance of all later records is shifted down accordingly;
-  * positions further than --max-km from the ride's median position (or --center) are
+  * positions further than --max-km from the activity's median position (or --center) are
     invalidated (lat/lon set to the FIT "invalid" value, the rest of the record is kept);
   * session / lap totals are rewritten: total_distance, avg & max speed, bounding box;
   * header + file CRC are recomputed.
 
 No external dependencies. Also used as a tiny FIT library by the sibling scripts.
-Usage:  python3 fix_fit_spoof.py in.fit out.fit [--max-kmh 60] [--max-km 100] [--center LAT,LON]
+Usage:  python3 fix_fit_spoof.py in.fit out.fit [--max-kmh N] [--max-km 100] [--center LAT,LON]
 Limits: single (non-chained) FIT file; array fields are read by first element only.
 """
 import argparse, math, struct, statistics
@@ -154,17 +154,42 @@ def center_of(recs, center=None):
     return statistics.median(p[0] for p in pts), statistics.median(p[1] for p in pts)
 
 
+# FIT sport enum -> (name, default speed threshold in km/h). Anything else falls back to 60.
+SPORTS = {1: ('running', 30), 2: ('cycling', 60), 11: ('walking', 15), 12: ('cross-country skiing', 40),
+          16: ('mountaineering', 15), 17: ('hiking', 15), 21: ('e-biking', 60)}
+
+
+def default_max_kmh(msgs):
+    """Default spoofing threshold for the activity's sport: (km/h, sport name)."""
+    for m in msgs:
+        if not m.is_def and m.gnum == SESSION:
+            sp = get(m, 5)
+            name, kmh = SPORTS.get(sp, (f'sport {sp}', 60))
+            return kmh, name
+    return 60, 'unknown sport'
+
+
+def resolve_max_kmh(arg, msgs, quiet=False):
+    """--max-kmh if given, otherwise the sport default; prints which one is used."""
+    if arg is not None:
+        return arg
+    kmh, name = default_max_kmh(msgs)
+    if not quiet:
+        print(f'threshold: {kmh} km/h (default for {name}; override with --max-kmh)')
+    return kmh
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('src'); ap.add_argument('dst')
-    ap.add_argument('--max-kmh', type=float, default=60.0, help='anything faster is treated as spoofed (default 60)')
+    ap.add_argument('--max-kmh', type=float, help='anything faster is treated as spoofed '
+                                                  '(default by sport: cycling 60, running 30, walking/hiking 15)')
     ap.add_argument('--max-km', type=float, default=100.0, help='positions further than this from the centre are dropped')
-    ap.add_argument('--center', help='LAT,LON of the real riding area; default = median of all positions '
+    ap.add_argument('--center', help='LAT,LON of the real activity area; default = median of all positions '
                                      '(give it explicitly if more than half of the positions are spoofed)')
     a = ap.parse_args()
-    thr = a.max_kmh / 3.6
-
     header, msgs = parse(a.src)
+    thr = resolve_max_kmh(a.max_kmh, msgs) / 3.6
     recs = load_records(msgs)
     clat, clon = center_of(recs, tuple(map(float, a.center.split(','))) if a.center else None)
 
@@ -176,9 +201,12 @@ def main():
         v = r['spd'] or 0.0
         if d is not None and prev_d is not None:
             dd, dt = d - prev_d, max(t - prev_t, 1)
-            if max(v, dd / dt) > thr:                    # spoofed-GPS fallback
-                removed += dd; n_fake += 1; v = 0.0
-                put(m, 73, 0); put(m, 6, 0)
+            fake = max(v, dd / dt) > thr
+        else:                                            # first record, or no distance: judge by speed alone
+            dd, fake = 0.0, v > thr
+        if fake:                                         # spoofed-GPS fallback
+            removed += dd; n_fake += 1; v = 0.0
+            put(m, 73, 0); put(m, 6, 0)
         if d is not None:
             prev_t, prev_d = t, d
             put(m, 5, int(round((d - removed) * 100)))

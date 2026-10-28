@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
 verify_fit.py - independent check of a fixed FIT against the original.  No external dependencies.
-Usage: python3 verify_fit.py original.fit fixed.fit [--max-kmh 60]
+Usage: python3 verify_fit.py original.fit fixed.fit [--max-kmh N]  (default: by sport, same as the fixer)
 Exit code 0 = all checks passed.
 """
 import argparse, struct, sys
-from fix_fit_spoof import parse, get, crc16, load_records, SC, SESSION, LAP, REC
+from fix_fit_spoof import parse, get, crc16, load_records, resolve_max_kmh, SC, SESSION, LAP, REC
 
-ap = argparse.ArgumentParser(); ap.add_argument('orig'); ap.add_argument('fixed'); ap.add_argument('--max-kmh', type=float, default=60.0)
+ap = argparse.ArgumentParser(); ap.add_argument('orig'); ap.add_argument('fixed'); ap.add_argument('--max-kmh', type=float)
 a = ap.parse_args()
 ok = True
 def check(name, cond, extra=''):
@@ -15,6 +15,7 @@ def check(name, cond, extra=''):
 
 ra, rb = open(a.orig, 'rb').read(), open(a.fixed, 'rb').read()
 (_, A), (_, B) = parse(a.orig), parse(a.fixed)
+a.max_kmh = resolve_max_kmh(a.max_kmh, A, quiet=True)
 check('same size and message count', len(ra) == len(rb) and len(A) == len(B))
 check('file CRC', crc16(rb[:-2]) == struct.unpack('<H', rb[-2:])[0])
 if rb[0] >= 14:
