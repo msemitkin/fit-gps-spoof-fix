@@ -1,8 +1,18 @@
-# fit-gps-spoof-fix
+# fit-gps-spoof-fix: fix Strava / Garmin rides broken by GPS spoofing · виправлення активностей Strava після спуфінгу GPS
 
 Repair Garmin/Strava cycling activities corrupted by GPS spoofing or jamming — the track "teleports" to Lima (or elsewhere), speed spikes to 150–250 km/h, and the distance gains kilometres you never rode.
 
 It's an [Agent Skill](https://agentskills.io): drop it into Claude Code or any skills-compatible agent, upload your `.fit`, and ask it to fix the ride. The scripts also work on their own.
+
+**Sound familiar?** Strava shows a 230 km/h max speed on a bike ride · your Garmin track jumps to Lima, Peru · the ride has 15 km you never rode · a straight line across the map · wrong distance after GPS jamming or electronic warfare (EW) interference.
+
+## Українською
+
+Виправляє велоактивності Garmin і Strava, зіпсовані **спуфінгом або глушінням GPS (РЕБ)**: трек «улітає» в Ліму (Перу), максимальна швидкість 200+ км/год, зайві кілометри, пряма лінія через пів карти. Скіл бере оригінальний FIT-файл, прибирає фейкову швидкість і дистанцію, стирає підмінені координати й зберігає пульс, каденс, висоту, час і справжній кілометраж із датчика швидкості на колесі. Потім пояснює, як перезалити активність у Strava.
+
+**Знайомо?** Strava показує 230 км/год на велопоїздці · трек Garmin стрибає в Перу · у поїздці 15 км, яких ти не проїжджав · неправильна дистанція після тривоги · як виправити активність у Strava після РЕБ, не втративши лайки.
+
+Встановлення й запуск описано нижче, англійською; сам скіл (`SKILL.md`) написаний українською.
 
 ## Before and after
 
