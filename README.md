@@ -25,15 +25,23 @@ Zip the `skills/fit-gps-spoof-fix/` folder and upload it as a custom skill in yo
 
 ## How it works
 
-While the wheel turns, the watch takes speed and distance from the wheel sensor, so riding under spoofing is recorded correctly — only lat/lon are wrong. The fake kilometres pile up **while stopped**: the sensor sleeps, the watch falls back to spoofed GPS speed, auto-pause lifts, and ~200 km/h "riding" gets logged with zero cadence and resting heart rate.
+**What spoofing does to the file.** When GPS is spoofed, the watch believes it's somewhere else, usually Lima, Peru, and "travels" there at 200–1400 km/h. When GPS is jammed, there's no fix at all. How much of the activity gets damaged depends on where your watch gets its speed from.
 
-So instead of cutting the track, the fixer keeps every record and:
+**With a wheel speed sensor** (most of the damage is fixable). As long as the wheel is turning, the watch takes speed and distance from the sensor, so the actual riding under spoofing is recorded correctly and only lat/lon are wrong. The fake kilometres build up **while you're stopped**. The sensor goes to sleep after a minute or two, the watch switches to GPS speed, the spoofed GPS cancels auto-pause, and the file logs "riding" at about 200 km/h with zero cadence, flat altitude and resting heart rate.
 
-- zeroes speed on records above `--max-kmh` and removes their distance increment (shifting all later cumulative distance down);
-- invalidates coordinates further than `--max-km` from the ride's median position (or `--center`);
-- rewrites session/lap totals (distance, avg/max speed, bounding box) and recomputes the CRCs.
+**Without a sensor** (partial fix). Speed and distance come from GPS all the time, so riding while spoofed is junk too. The fixer still removes the big spikes and the Lima coordinates. But the distance you really covered during those stretches was never recorded, so it can't be recovered. Those minutes are left with no distance, and the total will be **lower** than what you actually rode. Spoofed points slower than the threshold also stay in.
 
-Heart rate, cadence, altitude, time and real sensor distance are preserved. The file is patched byte for byte — same size, all undocumented Garmin messages untouched.
+`analyze_fit.py` tells you which case applies to your file (`wheel speed sensor paired: YES/NO`).
+
+**What the fixer does.** It doesn't cut the track. It keeps every record and:
+
+- sets speed to zero on records above `--max-kmh` (default 60) and removes their distance increment, shifting all later cumulative distance down;
+- invalidates coordinates more than `--max-km` (default 100) from the ride's median position, or from `--center` if you give one;
+- rewrites the session and lap totals (distance, avg/max speed, bounding box) and recomputes the CRCs.
+
+Heart rate, cadence, altitude and time are kept as they are. The file is patched byte for byte: same size, and all undocumented Garmin messages are left untouched.
+
+**What it can't fix.** Where there were no real coordinates, Strava draws a straight line from the last good point to the next one. With a sensor, the distance for that gap is still correct even though the line isn't. `preview_track.py` lists each gap as "straight X m, actually ridden Y m".
 
 ## Run the scripts directly
 
@@ -53,7 +61,7 @@ Get the **original FIT** (Strava → activity → ⋯ → Export Original, or Ga
 
 ## Limits
 
-Single (non-chained) FIT files; array fields are read by first element only. Without a wheel speed sensor, real distance ridden during spoofing can't be recovered.
+Single (non-chained) FIT files; array fields are read by first element only.
 
 ## License
 
