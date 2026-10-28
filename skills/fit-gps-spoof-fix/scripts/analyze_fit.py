@@ -112,7 +112,7 @@ def main():
           f'   -> {"CLEAN GAP, threshold is safe" if not over or min(r["v"] for r in over) * 3.6 > 1.5 * max(real) else "gap is NARROW - check the episodes and borderline records below before trusting the threshold"}')
     if foot:
         ns = [r for r in fake if r['v'] <= thr]
-        print(f'on foot: {len(ns)} more records are GPS jumps faster than {NO_STEP_KMH} km/h with no steps (cadence 0), +{sum(r["dd"] for r in ns):.0f} m; the fixer removes them too')
+        print(f'on foot: {len(ns)} more records are GPS jumps faster than {NO_STEP_KMH} km/h with no steps (cadence 0), +{sum(r["dd"] for r in ns):.0f} m; included in the fake records below')
 
     # ---- fake-speed episodes ----------------------------------------------------------
     print(f'\nfake records: {len(fake)}, fake distance {sum(r["dd"] for r in fake) / 1000:.2f} km')
@@ -130,11 +130,11 @@ def main():
         still = max(cads) < 40 and steady >= 0.7
         print(f'   {hms(e[0]["s"])} - {hms(e[-1]["s"])} elapsed: {len(e)} records, +{sum(r["dd"] for r in e):.0f} m, max record speed {max(r["spd"] or 0 for r in e) * 3.6:.0f} km/h, '
               f'cadence max {max(cads)}, HR {min(hrs, default=0)}-{max(hrs, default=0)}, altitude within 3 m of median {steady:.0%}'
-              f'  -> {"athlete was STANDING or barely moving (sensor asleep, GPS fallback)" if still else "athlete may have been MOVING - look closer"}')
+              f'  -> {("athlete was STANDING or barely moving (sensor asleep, GPS fallback)" if has_speed_sensor else "athlete was STANDING or barely moving (GPS drifting or spoofed)") if still else "athlete may have been MOVING - look closer"}')
 
     # ---- borderline records -----------------------------------------------------------
     border = [k for k, r in enumerate(recs) if 0.8 * thr < r['v'] <= thr]
-    print(f'\nborderline records ({0.8 * a.max_kmh:.0f}-{a.max_kmh:.0f} km/h): {len(border)}  (real descents: smooth ramp, altitude drops, valid GPS)')
+    print(f'\nborderline records ({0.8 * a.max_kmh:.0f}-{a.max_kmh:.0f} km/h, kept): {len(border)}  (real peak = smooth ramp in neighbours, altitude changes, valid GPS; artefact = cadence 0, neighbours ~0)')
     for k in border[:15]:
         w = recs[max(k - 5, 0):k + 6]; alts = [x['alt'] for x in w if x['alt'] is not None]
         print(f'   {hms(recs[k]["s"])}: {recs[k]["v"] * 3.6:.1f} km/h, cad {recs[k]["cad"]}, HR {recs[k]["hr"]}, spoofed pos: {recs[k]["far"]}, '
