@@ -8,8 +8,10 @@ Prints: devices (is there a speed sensor: bike wheel or foot pod?), session tota
 (is there a clean gap under the threshold?), fake-speed episodes with a standstill verdict, borderline
 records just under the threshold, gaps in valid GPS, sensor-vs-GPS distance ratio, raw GPS-chip speed.
 """
-import argparse, datetime as dt, statistics, struct
-from fix_fit_spoof import (parse, get, crc16, load_records, center_of, hav_m, resolve_max_kmh, SC, FIT_EPOCH,
+import argparse, datetime as dt, os, statistics, struct, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # works under python3 -I too
+from fix_fit_spoof import (parse, get, crc16, load_records, center_of, hav_m, resolve_max_kmh, standing_jitter,
+                           session_sport, FOOT_SPORTS, NO_STEP_KMH, SC, FIT_EPOCH,
                            FILE_ID, SESSION, LAP, EVENT, DEVICE_INFO, ACTIVITY, GPS_META)
 
 ANT_TYPES = {11: 'bike power', 120: 'heart rate', 121: 'bike speed+cadence', 122: 'bike cadence', 123: 'bike SPEED sensor',
@@ -101,12 +103,19 @@ def main():
         if c:
             print(f'   {max(lo, 0):>5.0f} - {e if e < 1e9 else float("inf"):<5.0f}: {c}')
         lo = e
-    real = [r['v'] * 3.6 for r in recs if r['v'] <= thr]; fake = [r for r in recs if r['v'] > thr]
-    print(f'fastest record under the threshold: {max(real):.1f} km/h;  slowest above it: {min((r["v"] * 3.6 for r in fake), default=0):.1f} km/h'
-          f'   -> {"CLEAN GAP, threshold is safe" if not fake or min(r["v"] for r in fake) * 3.6 > 1.5 * max(real) else "gap is NARROW - check the episodes and borderline records below before trusting the threshold"}')
+    foot = session_sport(msgs) in FOOT_SPORTS and any((r['cad'] or 0) > 0 for r in recs)
+    for r in recs:   # same rule as the fixer: over the threshold, or (on foot) a no-step jump over NO_STEP_KMH
+        r['fake'] = r['v'] > thr or (foot and (r['cad'] or 0) == 0 and r['v'] > NO_STEP_KMH / 3.6)
+    real = [r['v'] * 3.6 for r in recs if not r['fake']]; fake = [r for r in recs if r['fake']]
+    over = [r for r in fake if r['v'] > thr]
+    print(f'fastest kept record: {max(real):.1f} km/h;  slowest above the threshold: {min((r["v"] * 3.6 for r in over), default=0):.1f} km/h'
+          f'   -> {"CLEAN GAP, threshold is safe" if not over or min(r["v"] for r in over) * 3.6 > 1.5 * max(real) else "gap is NARROW - check the episodes and borderline records below before trusting the threshold"}')
+    if foot:
+        ns = [r for r in fake if r['v'] <= thr]
+        print(f'on foot: {len(ns)} more records are GPS jumps faster than {NO_STEP_KMH} km/h with no steps (cadence 0), +{sum(r["dd"] for r in ns):.0f} m; the fixer removes them too')
 
     # ---- fake-speed episodes ----------------------------------------------------------
-    print(f'\nrecords above {a.max_kmh:.0f} km/h: {len(fake)}, fake distance {sum(r["dd"] for r in fake) / 1000:.2f} km')
+    print(f'\nfake records: {len(fake)}, fake distance {sum(r["dd"] for r in fake) / 1000:.2f} km')
     eps, cur = [], []
     for r in fake:
         if cur and r['s'] - cur[-1]['s'] > 300:
@@ -116,9 +125,11 @@ def main():
         eps.append(cur)
     for e in eps:
         cads = [r['cad'] or 0 for r in e]; hrs = [r['hr'] for r in e if r['hr']]; alts = [r['alt'] for r in e if r['alt'] is not None]
-        still = max(cads) < 40 and (not alts or max(alts) - min(alts) < 5)
+        med = statistics.median(alts) if alts else 0
+        steady = sum(abs(x - med) < 3 for x in alts) / len(alts) if alts else 1   # ignores single altitude glitches
+        still = max(cads) < 40 and steady >= 0.7
         print(f'   {hms(e[0]["s"])} - {hms(e[-1]["s"])} elapsed: {len(e)} records, +{sum(r["dd"] for r in e):.0f} m, max record speed {max(r["spd"] or 0 for r in e) * 3.6:.0f} km/h, '
-              f'cadence max {max(cads)}, HR {min(hrs, default=0)}-{max(hrs, default=0)}, altitude span {max(alts) - min(alts) if alts else 0:.1f} m'
+              f'cadence max {max(cads)}, HR {min(hrs, default=0)}-{max(hrs, default=0)}, altitude within 3 m of median {steady:.0%}'
               f'  -> {"athlete was STANDING or barely moving (sensor asleep, GPS fallback)" if still else "athlete may have been MOVING - look closer"}')
 
     # ---- borderline records -----------------------------------------------------------
@@ -139,11 +150,16 @@ def main():
     print(f'\npossible hidden fake steps under the threshold (no real GPS, cadence 0, HR<100, flat altitude, step >15 m): {len(cand)}')
     for r in cand[:10]:
         print(f'   {hms(r["s"])}: +{r["dd"]:.0f} m in {r["dt"]:.0f} s, speed {(r["spd"] or 0) * 3.6:.1f} km/h')
+    jit = standing_jitter(recs, msgs, clat, clon, a.max_km)
+    jit = [recs[k] for k in sorted(jit) if not recs[k]['fake']]
+    if foot:
+        print(f'standing-still GPS jitter (on foot, cadence 0, track going nowhere for +-60 s): {len(jit)} records, '
+              f'+{sum(r["dd"] for r in jit) / 1000:.2f} km; the fixer removes it unless --keep-jitter')
 
     # ---- GPS gaps & sensor-vs-GPS ratio ---------------------------------------------------
     ok = [r for r in recs if r['lat'] is not None and not r['far']]
     g_sum = d_sum = 0.0
-    print('\ngaps in REAL GPS where the athlete actually moved (map will show a straight line there):')
+    print('\ngaps in REAL GPS in the ORIGINAL file (map will show a straight line there; preview_track.py lists the final ones after the fix):')
     for p, q in zip(ok, ok[1:]):
         gd = hav_m(p['lat'], p['lon'], q['lat'], q['lon']); dd = (q['dist'] or 0) - (p['dist'] or 0); gt = q['t'] - p['t']
         if gt <= 5:
@@ -151,17 +167,23 @@ def main():
         elif gt > 30 and (gd > 150 or dd > 150):
             had = any(r['far'] for r in recs if p['t'] < r['t'] < q['t'])
             print(f'   {hms(p["s"])} - {hms(q["s"])}: straight {gd:.0f} m, recorded {dd:.0f} m, {"spoofed positions inside" if had else "no fix at all (jamming)"}')
+    if ok:   # no real position at the start or the end: the map track starts late / ends early, with no line drawn
+        d0 = (ok[0]['dist'] or 0) - (recs[0]['dist'] or 0); d1 = (recs[-1]['dist'] or 0) - (ok[-1]['dist'] or 0)
+        if d0 > 150:
+            print(f'   start - {hms(ok[0]["s"])}: no real position, recorded {d0:.0f} m  -> the map track will START LATE')
+        if d1 > 150:
+            print(f'   {hms(ok[-1]["s"])} - end: no real position, recorded {d1:.0f} m  -> the map track will END EARLY (no line drawn)')
     if d_sum:
         ratio = g_sum / d_sum
         print(f'GPS / recorded distance over clean stretches: {ratio:.4f}  '
-              f'({"differs from 1 -> recorded distance comes from the speed sensor" if abs(ratio - 1) > 0.004 else "~1.000 -> recorded distance is probably GPS-based"})')
+              f'({"~1.000 -> recorded distance is GPS-based" if abs(ratio - 1) <= 0.004 else "differs from 1 -> recorded distance comes from the speed sensor" if has_speed_sensor else "differs from 1 -> the watch smooths GPS distance or adds wrist-accelerometer distance; still no sensor"})')
 
     # ---- raw GPS-chip speed (Garmin message 160) --------------------------------------------
     g = [get(m, 4) for m in msgs if not m.is_def and m.gnum == GPS_META]
     g = [x / 1000 for x in g if x is not None]
     if g:
         print(f'raw GPS-chip speed samples (msg 160): {len(g)}, above threshold: {sum(x > thr for x in g)}, max {max(g) * 3.6:.0f} km/h'
-              f'   (many spoofed samples + sane record speed = the watch was using the speed sensor)')
+              + ('   (many spoofed samples + sane record speed = the watch was using the speed sensor)' if has_speed_sensor else ''))
     ev = [(get(m, 253) - t0, get(m, 1)) for m in msgs if not m.is_def and m.gnum == EVENT and get(m, 0) == 0 and get(m, 253)]
     print(f'timer events: {sum(1 for e in ev if e[1] == 0)} starts / {sum(1 for e in ev if e[1] == 4)} stops (auto-pause {"on" if len(ev) > 6 else "probably off"})')
 

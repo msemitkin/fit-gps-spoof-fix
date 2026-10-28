@@ -2,7 +2,7 @@
 
 Repair Garmin/Strava activities (rides, runs, walks, hikes) corrupted by GPS spoofing or jamming — the track "teleports" to Lima (or elsewhere), speed spikes to 150–250 km/h, and the distance gains kilometres you never covered.
 
-Tested on real spoofed rides. Runs and walks use the same logic with their own speed thresholds, but haven't been tested on real files yet.
+Tested on real spoofed rides, a run and a walk.
 
 It's an [Agent Skill](https://agentskills.io): drop it into Claude Code or any skills-compatible agent, upload your `.fit`, and ask it to fix the activity. The scripts also work on their own.
 
@@ -10,7 +10,7 @@ It's an [Agent Skill](https://agentskills.io): drop it into Claude Code or any s
 
 ## Українською
 
-Виправляє активності Garmin і Strava (велопоїздки, пробіжки, прогулянки, походи), зіпсовані **спуфінгом або глушінням GPS (РЕБ)**: трек «улітає» в Ліму (Перу), максимальна швидкість 200+ км/год, зайві кілометри, пряма лінія через пів карти. Скіл бере оригінальний FIT-файл, прибирає фейкову швидкість і дистанцію, стирає підмінені координати й зберігає пульс, каденс, висоту, час і справжній кілометраж із датчика швидкості (на колесі або foot pod). Потім пояснює, як перезалити активність у Strava. Перевірено на реальних велопоїздках; для бігу й ходьби логіка та сама, але на реальних файлах ще не тестувалося.
+Виправляє активності Garmin і Strava (велопоїздки, пробіжки, прогулянки, походи), зіпсовані **спуфінгом або глушінням GPS (РЕБ)**: трек «улітає» в Ліму (Перу), максимальна швидкість 200+ км/год, зайві кілометри, пряма лінія через пів карти. Скіл бере оригінальний FIT-файл, прибирає фейкову швидкість і дистанцію, стирає підмінені координати й зберігає пульс, каденс, висоту, час і справжній кілометраж із датчика швидкості (на колесі або foot pod). Потім пояснює, як перезалити активність у Strava. Перевірено на реальних велопоїздках, пробіжці й прогулянці.
 
 **Знайомо?** Strava показує 230 км/год на велопоїздці · неможливий темп на пробіжці · трек Garmin стрибає в Перу · в активності 15 км, яких ти не долав · неправильна дистанція після тривоги · як виправити активність у Strava після РЕБ, не втративши лайки.
 
@@ -61,11 +61,14 @@ Zip the `skills/fit-gps-spoof-fix/` folder and upload it as a custom skill in yo
 
 **Without a sensor** (partial fix; most runs and walks). Speed and distance come from GPS all the time, so moving while spoofed is junk too. The fixer still removes the big spikes and the Lima coordinates. But the distance you really covered during those stretches was never recorded, so it can't be recovered. Those minutes are left with no distance, and the total will be **lower** than what you actually covered. Spoofed points slower than the threshold also stay in.
 
+**On foot without a sensor, GPS jitter while standing still** also adds distance: the position wanders around while you wait at a crossing or sit in a café. For runs, walks and hikes the fixer removes it: when there are no steps (cadence 0) and the track goes nowhere for a minute either way, that distance and those positions are dropped. On one real walk this removed 1.06 km of jitter on top of 3.96 km of spoofing. `--keep-jitter` turns it off. Bikes are excluded, because cadence 0 on a bike just means coasting.
+
 `analyze_fit.py` tells you which case applies to your file (`speed sensor (wheel or foot pod) paired: YES/NO`).
 
 **What the fixer does.** It doesn't cut the track. It keeps every record and:
 
 - sets speed to zero on records above `--max-kmh` and removes their distance increment, shifting all later cumulative distance down;
+- on foot, also treats any record faster than 10 km/h with no steps as fake, and removes standing-still jitter (see above);
 - invalidates coordinates more than `--max-km` (default 100) from the activity's median position, or from `--center` if you give one;
 - rewrites the session and lap totals (distance, avg/max speed, bounding box) and recomputes the CRCs.
 
@@ -85,7 +88,7 @@ python3 $S/verify_fit.py activity.fit activity_fixed.fit               # 3. inde
 python3 $S/preview_track.py activity.fit activity_fixed.fit preview.png   # 4. track preview
 ```
 
-Read the `analyze_fit.py` output before fixing. The speed threshold defaults to the activity's sport: cycling 60 km/h, running 30, cross-country skiing 40, walking and hiking 15, anything else 60. It's only safe when there's a clear gap between your real max speed and the fake speeds; override it with `--max-kmh` (and pass the same value to all three scripts). See [`SKILL.md`](skills/fit-gps-spoof-fix/SKILL.md) (Ukrainian) for the full decision guide and how to re-upload to Strava.
+Read the `analyze_fit.py` output before fixing. The speed threshold defaults to the activity's sport: cycling 60 km/h, running, walking and hiking 30, cross-country skiing 40, anything else 60. It's only safe when there's a clear gap between your real max speed and the fake speeds; override it with `--max-kmh` (and pass the same value to all three scripts). See [`SKILL.md`](skills/fit-gps-spoof-fix/SKILL.md) (Ukrainian) for the full decision guide and how to re-upload to Strava.
 
 Get the **original FIT** (Strava → activity → ⋯ → Export Original, or Garmin Connect). GPX/TCX lack the raw fields this needs.
 

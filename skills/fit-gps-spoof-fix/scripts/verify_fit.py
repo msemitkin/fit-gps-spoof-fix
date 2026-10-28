@@ -4,7 +4,8 @@ verify_fit.py - independent check of a fixed FIT against the original.  No exter
 Usage: python3 verify_fit.py original.fit fixed.fit [--max-kmh N]  (default: by sport, same as the fixer)
 Exit code 0 = all checks passed.
 """
-import argparse, struct, sys
+import argparse, os, struct, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # works under python3 -I too
 from fix_fit_spoof import parse, get, crc16, load_records, resolve_max_kmh, SC, SESSION, LAP, REC
 
 ap = argparse.ArgumentParser(); ap.add_argument('orig'); ap.add_argument('fixed'); ap.add_argument('--max-kmh', type=float)

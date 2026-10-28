@@ -155,8 +155,9 @@ def center_of(recs, center=None):
 
 
 # FIT sport enum -> (name, default speed threshold in km/h). Anything else falls back to 60.
-SPORTS = {1: ('running', 30), 2: ('cycling', 60), 11: ('walking', 15), 12: ('cross-country skiing', 40),
-          16: ('mountaineering', 15), 17: ('hiking', 15), 21: ('e-biking', 60)}
+SPORTS = {1: ('running', 30), 2: ('cycling', 60), 11: ('walking', 30), 12: ('cross-country skiing', 40),
+          16: ('mountaineering', 30), 17: ('hiking', 30), 21: ('e-biking', 60)}
+NO_STEP_KMH = 10   # foot sports: faster than this with cadence 0 (no steps) cannot be real movement
 
 
 def default_max_kmh(msgs):
@@ -179,24 +180,65 @@ def resolve_max_kmh(arg, msgs, quiet=False):
     return kmh
 
 
+FOOT_SPORTS = {1, 11, 16, 17}          # running, walking, mountaineering, hiking: cadence 0 = not stepping
+
+
+def session_sport(msgs):
+    for m in msgs:
+        if not m.is_def and m.gnum == SESSION:
+            return get(m, 5)
+    return None
+
+
+def standing_jitter(recs, msgs, clat, clon, max_km, window_s=60, max_ratio=0.3):
+    """Indexes (into recs) of records that are GPS jitter while standing still, for foot sports only:
+    cadence 0 (no steps) and the valid track within +-window_s goes nowhere
+    (net displacement < max_ratio of path length). On a bike cadence 0 just means coasting, so never there."""
+    if session_sport(msgs) not in FOOT_SPORTS or not any((r['cad'] or 0) > 0 for r in recs):
+        return set()
+    pos = [(k, r) for k, r in enumerate(recs)
+           if r['lat'] is not None and hav_m(r['lat'], r['lon'], clat, clon) <= max_km * 1000]
+    out, lo = set(), 0
+    for j, (k, r) in enumerate(pos):
+        if (r['cad'] or 0) != 0:
+            continue
+        while pos[lo][1]['t'] < r['t'] - window_s:
+            lo += 1
+        hi = j
+        while hi + 1 < len(pos) and pos[hi + 1][1]['t'] <= r['t'] + window_s:
+            hi += 1
+        w = [p for _, p in pos[lo:hi + 1]]
+        if len(w) < 4:
+            continue
+        path = sum(hav_m(a['lat'], a['lon'], b['lat'], b['lon']) for a, b in zip(w, w[1:]))
+        if path >= 5 and hav_m(w[0]['lat'], w[0]['lon'], w[-1]['lat'], w[-1]['lon']) < max_ratio * path:
+            out.add(k)
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('src'); ap.add_argument('dst')
     ap.add_argument('--max-kmh', type=float, help='anything faster is treated as spoofed '
-                                                  '(default by sport: cycling 60, running 30, walking/hiking 15)')
+                                                  '(default by sport: cycling 60, running/walking/hiking 30; on foot also '
+                                                  'anything over 10 km/h with no steps)')
     ap.add_argument('--max-km', type=float, default=100.0, help='positions further than this from the centre are dropped')
     ap.add_argument('--center', help='LAT,LON of the real activity area; default = median of all positions '
                                      '(give it explicitly if more than half of the positions are spoofed)')
+    ap.add_argument('--keep-jitter', action='store_true',
+                    help='running/walking/hiking only: do NOT remove GPS jitter recorded while standing still')
     a = ap.parse_args()
     header, msgs = parse(a.src)
     thr = resolve_max_kmh(a.max_kmh, msgs) / 3.6
     recs = load_records(msgs)
     clat, clon = center_of(recs, tuple(map(float, a.center.split(','))) if a.center else None)
+    jitter = set() if a.keep_jitter else standing_jitter(recs, msgs, clat, clon, a.max_km)
+    foot = session_sport(msgs) in FOOT_SPORTS and any((r['cad'] or 0) > 0 for r in recs)
 
-    removed = 0.0; n_fake = n_pos = 0
+    removed = 0.0; n_fake = n_pos = n_jit = 0; jit_m = 0.0
     prev_t = prev_d = None
     new = []   # (t, new_dist_m, new_speed_mps, lat_raw, lon_raw) per record, after correction
-    for r in recs:
+    for k, r in enumerate(recs):
         m, t, d, la, lo = r['m'], r['t'], r['dist'], r['lat'], r['lon']
         v = r['spd'] or 0.0
         if d is not None and prev_d is not None:
@@ -204,9 +246,14 @@ def main():
             fake = max(v, dd / dt) > thr
         else:                                            # first record, or no distance: judge by speed alone
             dd, fake = 0.0, v > thr
+        if not fake and foot and (r['cad'] or 0) == 0:      # GPS jump while not stepping
+            fake = max(v, dd / dt if d is not None and prev_d is not None else 0) > NO_STEP_KMH / 3.6
         if fake:                                         # spoofed-GPS fallback
             removed += dd; n_fake += 1; v = 0.0
             put(m, 73, 0); put(m, 6, 0)
+        elif k in jitter:                                # standing still, GPS wandering (foot sports)
+            removed += dd; jit_m += dd; n_jit += 1; v = 0.0
+            put(m, 73, 0); put(m, 6, 0); put(m, 0, None); put(m, 1, None); la = None
         if d is not None:
             prev_t, prev_d = t, d
             put(m, 5, int(round((d - removed) * 100)))
@@ -251,7 +298,9 @@ def main():
 
     write(header, msgs, a.dst)
     print(f'records: {len(recs)}   spoofed-speed records zeroed: {n_fake}')
-    print(f'fake distance removed: {removed / 1000:.2f} km   spoofed positions dropped: {n_pos}')
+    print(f'fake distance removed: {(removed - jit_m) / 1000:.2f} km   spoofed positions dropped: {n_pos}')
+    if n_jit:
+        print(f'standing-still GPS jitter removed: {jit_m / 1000:.2f} km in {n_jit} records (positions wiped; --keep-jitter to skip)')
     print(f'new total: {new[-1][1] / 1000:.2f} km   new max speed: {max(r[2] for r in new) * 3.6:.1f} km/h')
 
 
