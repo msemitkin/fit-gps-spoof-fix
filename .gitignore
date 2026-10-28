@@ -1,0 +1,3 @@
+*.fit
+*.png
+__pycache__/
