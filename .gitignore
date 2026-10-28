@@ -2,3 +2,4 @@
 *.png
 __pycache__/
 !.claude-plugin/icon.png
+!docs/*.png

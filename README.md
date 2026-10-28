@@ -4,6 +4,24 @@ Repair Garmin/Strava cycling activities corrupted by GPS spoofing or jamming —
 
 It's an [Agent Skill](https://agentskills.io): drop it into Claude Code or any skills-compatible agent, upload your `.fit`, and ask it to fix the ride. The scripts also work on their own.
 
+## Before and after
+
+A real 5-hour MTB ride in Kyiv, recorded on a Garmin with a wheel speed sensor.
+
+**Speed over time.** Before: **71.38 km, max 230.5 km/h**. The spikes at about 2:10 and 4:20 are stops. The wheel sensor fell asleep, the watch switched to spoofed GPS speed, and it logged 15 km of "riding" at 200+ km/h while the rider stood still.
+
+![Speed before the fix](docs/speed-before.png)
+
+After: **56.32 km, max 54.8 km/h**. The 106 fake records have zero speed, and their distance is gone. Everything else is untouched.
+
+![Speed after the fix](docs/speed-after.png)
+
+**The map.** Before: the raw track. Each red line leaving the frame is a jump to Lima, Peru, about 12,000 km away, and 449 points were placed there. After: the same frame with the Lima points removed. The blue dashed segment is a gap with no real coordinates. It draws as a straight line, but its distance still comes from the wheel sensor. The first and last kilometre are cut from both maps for privacy.
+
+| Before | After |
+|---|---|
+| ![Track before the fix](docs/map-before.png) | ![Track after the fix](docs/map-after.png) |
+
 ## Install
 
 **Claude Code**
